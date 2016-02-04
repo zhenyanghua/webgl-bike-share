@@ -1,0 +1,170 @@
+html, body{
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+#map-div {
+  margin: 0;
+  padding: 0;
+  position: absolute;
+  top: 55px;
+  height: calc(100% - 55px);
+  width: 100%;
+}
+.top-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 55px;
+  color: #333;
+  background-color: rgba(255,255,255,0.6);
+}
+#monitor-group {
+  position: absolute;
+  top: 11px;
+  right: 80px;
+  display: inline-flex;
+}
+#monitor-box {
+  min-width: 22px;
+  height: 22px;
+  font-family: 'Helvetica', sans-serif;
+  text-align: center;
+  font-size: 22px;
+  padding: 4px;
+  cursor: default;
+
+  border: 2px solid rgba(53,173,33,0.7);
+  -webkit-border-radius: 5px;
+  -moz-border-radius: 5px;
+  border-radius: 5px;
+  -webkit-box-shadow: 0px 0px 5px 1px rgba(53,173,33, 0.5);
+  -moz-box-shadow: 0px 0px 5px 1px rgba(53,173,33, 0.5);
+  box-shadow: 0px 0px 5px 1px rgba(53,173,33, 0.5);
+  -webkit-transition: all 0.5s ease;
+  -moz-transition: all 0.5s ease;
+  -o-transition: all 0.5s ease;
+  -ms-transition: all 0.5s ease;
+  transition: all 0.5s ease;
+}
+
+#canvas {
+  position: absolute;
+  top: 120px;
+  right: 5px;
+  width: 200px;
+  height: 200px;
+  /*background-color: #333;*/
+  pointer-events:none;
+}
+#btn-canvas {
+  position: absolute;
+  top: 7px;
+  right: 11px;
+}
+#btn-heatmap {
+  position: absolute;
+  top: 11px;
+  right: 260px;
+  width: 100px;
+  height: 15px;
+  font-family: 'Helvetica', sans-serif;
+}
+.switch-label {
+  color: #333 !important;
+}
+.switch-label-on-off {
+  color: #FFF;
+}
+.toolbar-labels {
+  font-family: 'Helvetica', sans-serif;
+  font-weight: bold;
+  padding-top: .5em;
+  padding-right: 2.25em;
+}
+/*Play Button*/
+.play_border {
+    margin:5px;
+    border: 2px solid rgba(53,173,33,0.7);
+    -webkit-border-radius: 100%;
+    -moz-border-radius: 100%;
+    border-radius: 100%;
+    width: 29px;
+    height: 29px;
+    -webkit-box-shadow: 0px 0px 5px 1px rgba(53,173,33, 0.5);
+    -moz-box-shadow: 0px 0px 5px 1px rgba(53,173,33, 0.5);
+    box-shadow: 0px 0px 5px 1px rgba(53,173,33, 0.5);
+    -webkit-transition: all 0.5s ease;
+    -moz-transition: all 0.5s ease;
+    -o-transition: all 0.5s ease;
+    -ms-transition: all 0.5s ease;
+    transition: all 0.5s ease;
+    cursor: pointer;
+}
+.play_border:hover{
+    border-color: transparent;
+    -webkit-box-shadow: 0px 0px 5px 1px rgba(53,173,33, 0.2);
+    -moz-box-shadow: 0px 0px 5px 1px rgba(53,173,33, 0.2);
+    box-shadow: 0px 0px 5px 1px rgba(53,173,33, 0.2);
+}
+.play_border:hover .play_button{
+    border-left: 10px solid rgba(53,173,33,1);
+}
+.play_border:active,.play_border:focus{
+    -webkit-box-shadow: 0px 0px 5px 1px rgba(53,173,33, 0.2);
+    -moz-box-shadow: 0px 0px 5.play_button:hoverpx 1px rgba(53,173,33, 0.2);
+    box-shadow: 0px 0px 5px 1px rgba(53,173,33, 0.2);
+}
+.play_button {
+    position:relative;
+    top: 5px;
+    left: 40%;
+    width: 0;
+    height: 0;
+    border-top: 10px solid transparent;
+    border-bottom: 10px solid transparent;
+    border-left: 10px solid rgba(0,0,0,0.7);
+} 
+/* Hover Tooltip*/
+#hover-tooltip {
+  position: absolute;
+  min-width: 160px;
+  max-width: 220px;
+  min-height: 18px;
+  padding: 2px 5px;
+  font: 11px sans-serif;
+  font-weight: bold;
+  border-radius: 5px;
+  color: #000;
+  pointer-events: none;
+  z-index: 99;
+  /*border:1px solid rgba(88, 155, 208, 1.0);*/
+  background-color:#FFF;
+  opacity: 0.85;
+  display: none;
+}
+
+.tooltip-paragraph {
+  font-size: 11px;
+  padding: 2px;
+  padding-left: 20px;
+  padding-right: 20px;
+
+}
+
+.thin-tooltip-label {
+  color: rgb(102,102,102);
+  font-weight: lighter;
+}
+
+.thin {
+  font-weight: 300;
+  text-transform: lowercase;
+}
+.capitalize {
+  text-transform: capitalize;
+}
+.highlight {
+  color: rgba(53, 173, 33, 1.0);
+}

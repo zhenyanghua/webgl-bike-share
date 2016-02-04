@@ -1,0 +1,588 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="initial-scale=1.0, user-scalable=no">
+    <title>CanvasLayer WebGL Example</title>
+    <link rel="stylesheet" href="css/toggle-switch.css" />
+    <link rel="stylesheet" href="css/style.css" />
+    <style>
+      #heatmap-canvas {
+        margin: 0;
+        padding: 0;
+        position: absolute;
+        top: 55px;
+        height: calc(100% - 55px);
+        width: 100%;
+        pointer-events: none;
+      }
+      #canvas {
+        position: absolute;
+        top: 120px;
+        right: 5px;
+        width: 200px;
+        height: 200px;
+        /*background-color: #333;*/
+        pointer-events:none;
+      }
+    </style>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.2/jquery.min.js"></script>
+    <script src="https://maps.googleapis.com/maps/api/js?v=3&signed_in=true&libraries=visualization,geometry"></script>
+    <script src="js/CanvasLayer.js"></script>
+    <script src="http://momentjs.com/downloads/moment.js"></script>
+    <script src="js/webgl-heatmap.js"></script>
+    <script src="js/trip.json"></script>
+    <script src="js/stations.js"></script>
+
+    <script>
+      var map;
+      var canvasLayer;
+      var gl;
+
+      var heatmapLayer;
+      var heatmap;
+      
+      var heatmapRadius = 50;
+      var heatmapIntensity = 0.8
+      var heatmapIsOn = false;
+
+      var pointProgram;
+      var pointArrayBuffer;
+      var POINT_COUNT = stations.length;
+
+      var pi_180 = Math.PI / 180.0;
+      var pi_4 = Math.PI * 4;
+
+      var pixelsToWebGLMatrix = new Float32Array(16);
+      var mapMatrix = new Float32Array(16);
+
+      var resolutionScale = window.devicePixelRatio || 1;
+
+      var pxs = new Array();
+      var timeScale = 1 / 1000;
+      var tripStartTime;
+      var drawStartTime;
+      var livingParticles = {};
+      var canvas;
+      var ctx;
+      var clockRadius;
+
+      var fps = 30;
+
+      var originArray = new Array();
+      var sizeArray = new Array();
+
+      function init() {
+        // initialize the map
+        var mapOptions = {
+          zoom: 13,
+          center: new google.maps.LatLng(42.35, -71.08),
+          mapTypeId: google.maps.MapTypeId.ROADMAP,
+          styles: [
+            {
+              stylers: [{saturation: -85}]
+            }, {
+              featureType: "water",
+              elementType: "geometry",
+              stylers: [
+                { lightness: -20 }
+              ]
+            }
+          ]
+        };
+        var mapDiv = document.getElementById('map-div');
+        map = new google.maps.Map(mapDiv, mapOptions);
+        // Json Layer
+        map.data.loadGeoJson('js/station.json');
+        map.data.setStyle(function(feature) {
+          return {
+            icon: {
+              url: 'img/dot.png',
+              anchor: new google.maps.Point(4, 4)
+            }
+          }
+        });
+        // initialize the canvasLayer
+        var canvasLayerOptions = {
+          map: map,
+          resizeHandler: resize,
+          animate: false,
+          updateHandler: update,
+          resolutionScale: resolutionScale
+        };
+        canvasLayer = new CanvasLayer(canvasLayerOptions);
+
+        // initialize WebGL
+        gl = canvasLayer.canvas.getContext('experimental-webgl');
+
+        createShaderProgram();
+
+        tripStartTime = moment(trip_data[0].start_date, 'MM-DD-YYYY HH:mm:ss'); 
+        drawStartTime = moment();
+
+        // HeatmapLayer canvas setup.
+        heatmapLayer = document.getElementById('heatmap-canvas');
+        heatmapLayer.width = map.getDiv().offsetWidth;
+        heatmapLayer.height = map.getDiv().offsetHeight;
+        heatmapLayer.style.position = 'absolute';
+
+        // Initiate the clock
+        initClock();
+       
+        // Start!!
+        $('#btn-canvas').click(loadTrip);
+        $('#btn-heatmap>input').on('click', function() {
+          heatmapIsOn = !heatmapIsOn;
+        })
+      }
+
+      function createShaderProgram() {
+        // create vertex shader
+        var vertexSrc = document.getElementById('pointVertexShader').text;
+        var vertexShader = gl.createShader(gl.VERTEX_SHADER);
+        gl.shaderSource(vertexShader, vertexSrc);
+        gl.compileShader(vertexShader);
+
+        // create fragment shader
+        var fragmentSrc = document.getElementById('pointFragmentShader').text;
+        var fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
+        gl.shaderSource(fragmentShader, fragmentSrc);
+        gl.compileShader(fragmentShader);
+
+        // link shaders to create our program
+        pointProgram = gl.createProgram();
+        gl.attachShader(pointProgram, vertexShader);
+        gl.attachShader(pointProgram, fragmentShader);
+        gl.linkProgram(pointProgram);
+
+        gl.useProgram(pointProgram);
+
+        gl.a_PointSize = gl.getAttribLocation(pointProgram, 'a_PointSize');
+
+      }
+
+      function loadTrip() {
+        // Set FPS
+        setInterval(function(){ 
+          canvasLayer.scheduleUpdate();  
+          updateHeatmap();
+        }, 1000 / fps);
+
+        // Create the Particles
+        for (var i = 0; i < trip_data.length; i++) {
+          var elapsed = (moment(trip_data[i].start_date, 'MM-DD-YYYY HH:mm:ss') - tripStartTime) * timeScale;
+          createOneParticle(i, elapsed);
+        }
+
+        
+      }
+
+      function createOneParticle(i, elapsed) {
+
+        setTimeout(function() {
+          pxs[i] = new Circle(i);
+          pxs[i].reset();
+          livingParticles["p" + i] = pxs[i];
+        }, elapsed);  
+      }
+
+      function latLongToPixelXY(latitude, longitude) {
+        var sinLatitude = Math.sin(latitude * pi_180);
+        var pixelY = (0.5 - Math.log((1 + sinLatitude) / (1 - sinLatitude)) / (pi_4)) * 256;
+        var pixelX = ((longitude + 180) / 360) * 256;
+
+        var pixel = { x: pixelX, y: pixelY };
+        return pixel;
+      }
+
+      function resize() {
+        var width = canvasLayer.canvas.width;
+        var height = canvasLayer.canvas.height;
+
+        gl.viewport(0, 0, width, height);
+
+        // Matrix which maps pixel coordinates to WebGL coordinates.
+        // If canvasLayer is scaled (with resolutionScale), we need to scale
+        // this matrix by the same amount to account for the larger number of
+        // pixels.
+        pixelsToWebGLMatrix.set([
+          2 * resolutionScale / width, 0, 0, 0,
+          0, -2 * resolutionScale / height, 0, 0,
+          0, 0, 0, 0,
+          -1, 1, 0, 1
+        ]);
+      }
+
+      function scaleMatrix(matrix, scaleX, scaleY) {
+        // scaling x and y, which is just scaling first two columns of matrix
+        matrix[0] *= scaleX;
+        matrix[1] *= scaleX;
+        matrix[2] *= scaleX;
+        matrix[3] *= scaleX;
+
+        matrix[4] *= scaleY;
+        matrix[5] *= scaleY;
+        matrix[6] *= scaleY;
+        matrix[7] *= scaleY;
+      }
+
+      function translateMatrix(matrix, tx, ty) {
+        // translation is in last column of matrix
+        matrix[12] += matrix[0]*tx + matrix[4]*ty;
+        matrix[13] += matrix[1]*tx + matrix[5]*ty;
+        matrix[14] += matrix[2]*tx + matrix[6]*ty;
+        matrix[15] += matrix[3]*tx + matrix[7]*ty;
+      }
+
+      function update() {
+        if (!stations) return;
+
+        // update the position code here
+        gl.clear(gl.COLOR_BUFFER_BIT);
+
+        // var currentZoom = map.zoom;
+        // var pointSize = Math.max(currentZoom - 6.0, 1.0);
+
+        // gl.vertexAttrib1f(gl.a_PointSize, pointSize);
+
+        mapProjection = map.getProjection();
+
+        /**
+         * We need to create a transformation that takes world coordinate
+         * points in the pointArrayBuffer to the coodinates WebGL expects.
+         * 1. Start with second half in pixelsToWebGLMatrix, which takes pixel
+         *     coordinates to WebGL coordinates.
+         * 2. Scale and translate to take world coordinates to pixel coords
+         * see https://developers.google.com/maps/documentation/javascript/maptypes#MapCoordinate
+         */
+        
+        // copy pixel->webgl matrix
+        mapMatrix.set(pixelsToWebGLMatrix);
+
+        // Scale to current zoom (worldCoords * 2^zoom)
+        var scale = Math.pow(2, map.zoom);
+        scaleMatrix(mapMatrix, scale, scale);
+
+        // translate to current view (vector from topLeft to 0,0)
+        var offset = mapProjection.fromLatLngToPoint(canvasLayer.getTopLeft());
+        translateMatrix(mapMatrix, -offset.x, -offset.y);
+
+        // attach matrix value to 'u_mapMatrix' uniform in shader
+        var u_mapMatrix = gl.getUniformLocation(pointProgram, 'u_mapMatrix');
+        gl.uniformMatrix4fv(u_mapMatrix, false, mapMatrix);
+
+        // Update generated particles
+        for (var i = 0; i < pxs.length; i++) {
+          if (pxs[i] != null){
+            pxs[i].fade();
+            pxs[i].move();
+            pxs[i].draw();
+          }
+        }
+      }
+
+      /* Heatmap Function */
+      function updateHeatmap() {
+        if (!stations) return;
+
+        if (!heatmapIsOn) {
+          if (heatmap) 
+            heatmap.gl.clear(gl.COLOR_BUFFER_BIT);
+          return;
+        }
+
+        try {
+          heatmap = createWebGLHeatmap({ canvas: heatmapLayer });  
+        } catch(error) {
+          console.log(error);
+        }
+
+        // heatmap.gl.clearColor(0.0, 0.0, 0.0, 1.0);
+        heatmap.gl.clear(gl.COLOR_BUFFER_BIT);
+
+        // Visualize living particles
+        drawHeatmap();  
+
+      }
+
+      function drawHeatmap() {
+        heatmapData = [];
+        var mapProjection = canvasLayer.getProjection();
+        for (particle in livingParticles) {
+          var pixel = livingParticles[particle].currentPixel;
+          if (!pixel) continue;
+
+          var point = pixel.latlng;
+          pixel = mapProjection.fromLatLngToContainerPixel(point);
+          // console.log(pixel)
+          heatmap.addPoint(
+            Math.floor(pixel.x),
+            Math.floor(pixel.y),
+            heatmapRadius,
+            heatmapIntensity);
+        }
+        
+        heatmap.update();
+        heatmap.multiply(0.95);
+        heatmap.display();
+      }
+
+
+      /* Particle Class */
+      function Circle(i) {
+        this.settings = {
+          time_to_live: trip_data[i].duration * 1000 * timeScale, 
+          lon_origin: trip_data[i].strt_long, 
+          lat_origin: trip_data[i].strt_lat,
+          lon_destination: trip_data[i].end_long,
+          lat_destination: trip_data[i].end_lat,
+          counter: 0
+        }
+
+        this.reset = function() {
+
+          // convert latlong to world coordinates
+          var rawData_o = new Float32Array(2);
+          var pixel_0 = latLongToPixelXY(this.settings.lat_origin, this.settings.lon_origin);
+          rawData_o[0] = pixel_0.x;
+          rawData_o[1] = pixel_0.y;
+
+          // push into Original Array
+          originArray.push(rawData_o[0]);
+          originArray.push(rawData_o[1]);
+          // push into Size Array
+          sizeArray.push(1.0);
+
+
+          this.settings['fraction'] = this.settings.time_to_live / 1000 * fps;
+          this.alive = true;
+        }
+
+        this.fade = function() { 
+          if (this.alive) return;
+
+          livingParticles['p' + i] = null;
+          delete livingParticles['p' + i];
+          $('#monitor-box').text(Object.keys(livingParticles).length);  
+        }
+
+        this.move = function() {
+          if (this.alive) {
+            // Interpolate the next coordinates along the path between OD.
+            var step = 1 / this.settings.fraction;
+            var interpolated = google.maps.geometry.spherical.interpolate(
+              new google.maps.LatLng(this.settings.lat_origin, this.settings.lon_origin),
+              new google.maps.LatLng(this.settings.lat_destination, this.settings.lon_destination),
+              step * this.settings.counter);
+            var pixel = latLongToPixelXY(interpolated.lat(), interpolated.lng());
+            this.currentPixel = pixel;
+            this.currentPixel.latlng = interpolated;
+
+            if (this.settings.counter < this.settings.fraction) 
+              this.settings.counter++;  
+            else
+              this.alive = false;
+
+            originArray[2 * i] = pixel.x;
+            originArray[2 * i + 1] = pixel.y;
+
+            // set sizeArray
+            sizeArray[i] = this.alive ? Math.max(map.zoom - 6.0, 1.0) : 0.0;
+          } 
+        }
+
+        this.draw = function() {
+          // Draw the clock
+          var currentTime = moment(tripStartTime + (moment() - drawStartTime) / timeScale);
+          // drawClock(currentTime);
+
+          // create webgl buffer, bind it, and load rawData into it
+          rawData = new Float32Array(originArray);
+
+          pointArrayBuffer = gl.createBuffer();
+          gl.bindBuffer(gl.ARRAY_BUFFER, pointArrayBuffer);
+          gl.bufferData(gl.ARRAY_BUFFER, rawData, gl.STATIC_DRAW);
+
+          // get the program location
+          var a_worldCoord = gl.getAttribLocation(pointProgram, 'a_worldCoord');          
+          // tell webgl how buffer is laid out (itemSize -- pairs of x,y coords) 
+          gl.vertexAttribPointer(a_worldCoord, 2, gl.FLOAT, false, 0, 0);
+          // enable the 'worldCoord' attribute in the shader to receive buffer
+          gl.enableVertexAttribArray(a_worldCoord);
+
+          // create size array
+          sizeData = new Float32Array(sizeArray);
+
+          // create size buffer object
+          var sizeBuffer = gl.createBuffer();
+          // Write point sizes to the buffer object and enable it
+          gl.bindBuffer(gl.ARRAY_BUFFER, sizeBuffer);
+          gl.bufferData(gl.ARRAY_BUFFER, sizeData, gl.STATIC_DRAW);
+          var a_PointSize = gl.getAttribLocation(pointProgram, 'a_PointSize');
+
+          gl.vertexAttribPointer(a_PointSize, 1, gl.FLOAT, false, 0, 0);
+          gl.enableVertexAttribArray(a_PointSize);
+
+          // draw!!
+          gl.drawArrays(gl.POINTS, 0, rawData.length / 2);
+        }
+      }
+
+      /* Clock Drawing Functions */
+      function initClock() {
+        canvas = document.getElementById("canvas");
+        ctx = canvas.getContext("2d");
+        canvas.height = 200;
+        canvas.width = 200;
+        clockRadius = canvas.width / 2;
+        ctx.translate(clockRadius, clockRadius);
+        // ctx.translate(50, radius);
+        clockRadius = clockRadius * 0.80
+        // drawClock();  
+      }
+
+      function drawClock(time) {
+        // Clear Canvas
+        ctx.clearRect(-canvas.width/2, -canvas.height/2, canvas.width, canvas.height);
+
+        // drawFace();
+        drawNumbers();
+        drawTime(time);
+        drawSimpleTime(time);
+      }
+
+      function drawFace() {
+        var grad;
+
+        ctx.beginPath();
+        ctx.arc(0, 0, clockRadius, 0, 2*Math.PI);
+        ctx.fillStyle = 'white';
+        ctx.fill();
+
+        grad = ctx.createRadialGradient(0,0,clockRadius*0.95, 0,0,clockRadius*1.05);
+        grad.addColorStop(0, '#333');
+        grad.addColorStop(0.5, 'white');
+        grad.addColorStop(1, '#333');
+        ctx.strokeStyle = grad;
+        ctx.lineWidth = clockRadius*0.1;
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.arc(0, 0, clockRadius*0.1, 0, 2*Math.PI);
+        ctx.fillStyle = '#333';
+        ctx.fill(); 
+      }
+
+      function drawNumbers() {
+        var ang;
+        var num;
+        ctx.font = clockRadius*0.20 + "px sans-serif";
+        ctx.fillStyle = "rgba(53,173,33, 1)";
+        ctx.strokeStyle = "rgba(255,255,255, .8)";
+        ctx.lineWidth = "1";
+        ctx.textBaseline = "middle";
+        ctx.textAlign = "center";
+        for(num = 1; num < 13; num++){
+            ang = num * Math.PI / 6;
+            ctx.rotate(ang);
+            ctx.translate(0, -clockRadius*0.85);
+            ctx.rotate(-ang);
+            ctx.fillText(num.toString(), 0, 0);
+            ctx.font = clockRadius*0.28 + "px sans-serif";
+            ctx.strokeText(num.toString(), 0, 0);
+            ctx.rotate(ang);
+            ctx.translate(0, clockRadius*0.85);
+            ctx.rotate(-ang);
+        }
+      }
+
+      function drawTime(time){
+        var hour = time.hours();
+        var minute = time.minutes();
+        var second = time.seconds();
+        //hour
+        hour=hour%12;
+        hour=(hour*Math.PI/6)+(minute*Math.PI/(6*60))+(second*Math.PI/(360*60));
+        drawHand(ctx, hour, clockRadius*0.5, clockRadius*0.07);
+        //minute
+        minute=(minute*Math.PI/30)+(second*Math.PI/(30*60));
+        drawHand(ctx, minute, clockRadius*0.8, clockRadius*0.07);
+        // second
+        second=(second*Math.PI/30);
+        // drawHand(ctx, second, clockRadius*0.9, clockRadius*0.02);
+      }
+
+      function drawHand(ctx, pos, length, width) {
+        ctx.beginPath();
+        ctx.strokeStyle = "#fff";
+        ctx.lineWidth = width*0.9;
+        ctx.lineCap = "round";
+        ctx.moveTo(0,0);
+        ctx.rotate(pos);
+        ctx.lineTo(0, -length*0.9);
+        ctx.stroke();
+        ctx.rotate(-pos);
+      }
+
+      function drawSimpleTime(time) {
+        formattedTime = time.format('MMM DD YYYY HH:mm');
+        ctx.font = "14px sans-serif";
+        ctx.textAlign = "left";
+        ctx.fillStyle = '#333';
+        ctx.fillText(formattedTime, -45, canvas.height/2 - 10);
+      }
+
+      document.addEventListener('DOMContentLoaded', init, false);
+    </script>
+
+    <script id="pointVertexShader" type="x-shader/x-vertex">
+      attribute vec4 a_worldCoord;
+      attribute float a_PointSize;
+
+      uniform mat4 u_mapMatrix;
+
+      void main() {
+        // transform world coordinate by matrix uniform variable
+        gl_Position = u_mapMatrix * a_worldCoord;
+
+        // a constant size for points, regardless of zoom level
+        gl_PointSize = a_PointSize;
+      }
+    </script>
+    <script id="pointFragmentShader" type="x-shader/x-fragment">
+      precision mediump float;
+
+      void main() {
+        float dist = length(gl_PointCoord.xy - vec2(.5, .5));
+        float alpha = (dist > .5) ? 0. : 1.;
+        // set pixels in points to something that stands out
+        gl_FragColor = vec4(.9, .3, .1, .8) * alpha;
+      }
+    </script>
+  </head>
+
+  <body>
+    <div id="map-div"></div>
+    <canvas id="canvas"></canvas>
+    <canvas id="heatmap-canvas"></canvas>
+    <div class="top-bar">
+      <div id="btn-canvas" class="play_border">
+        <div class="play_button"></div>
+      </div>
+      <div id="monitor-group">
+        <div class="toolbar-labels">Live trips</div>
+        <div id="monitor-box"></div>
+      </div>
+      
+      <label id="btn-heatmap" class="switch-light switch-candy">
+          <input type="checkbox">
+          <span class="switch-label">
+            Heatmap
+            <span class="switch-label-on-off">Off</span>
+            <span class="switch-label-on-off">On</span>
+          </span>
+          <a></a>
+      </label>
+    </div> 
+  </body>
+</html>

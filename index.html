@@ -1,0 +1,43 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="initial-scale=1.0, user-scalable=no">
+    <title>Map Story</title>
+    <link rel="stylesheet" href="css/toggle-switch.css" />
+    <link rel="stylesheet" href="css/style.css" />
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.2/jquery.min.js"></script>
+    <script src="https://maps.googleapis.com/maps/api/js?v=3&signed_in=true&libraries=visualization"></script>
+    <script src="http://momentjs.com/downloads/moment.js"></script>
+    <script src="js/CanvasLayer.js"></script>
+    <script src="js/trip.json"></script>
+    <script src="js/main.js"></script>
+  </head>
+
+  <body>
+    <div id="map-div"></div>
+    <canvas id="canvas"></canvas>
+    <div class="top-bar">
+      <div id="btn-canvas" class="play_border">
+        <div class="play_button"></div>
+      </div>
+      <div id="monitor-group">
+        <div class="toolbar-labels">Live trips</div>
+        <div id="monitor-box"></div>
+      </div>
+      
+      <label id="btn-heatmap" class="switch-light switch-candy">
+          <input type="checkbox">
+          <span class="switch-label">
+            Heatmap
+            <span class="switch-label-on-off">Off</span>
+            <span class="switch-label-on-off">On</span>
+          </span>
+          <a></a>
+      </label>
+    </div> 
+    <div id="hover-tooltip">
+      <h4 class="dialog-title"></h4>
+    </div> 
+  </body>
+</html>
